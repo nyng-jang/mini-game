@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>산성비 타이핑 디펜스</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&display=swap');
+        
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        /* 16:9 비율 유지, 해상도 대응용 랩퍼 */
+        #game-container {
+            width: 100%;
+            max-width: 1200px;
+            aspect-ratio: 16 / 9;
+            background-color: #1e293b;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            border: 2px solid #334155;
+        }
+
+        /* 떨어지는 단어 스타일 */
+        .falling-word {
+            position: absolute;
+            font-weight: 700;
+            padding: 4px 12px;
+            border-radius: 9999px;
+            background-color: rgba(56, 189, 248, 0.1);
+            color: #38bdf8;
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            white-space: nowrap;
+            will-change: transform;
+            transform: translate(-50%, 0); /* 중앙 정렬 기준 */
+        }
+
+        /* 파티클 이펙트 */
+        .particle {
+            position: absolute;
+            pointer-events: none;
+            border-radius: 50%;
+            will-change: transform, opacity;
+        }
+
+        @keyframes explode {
+            0% { transform: scale(1); opacity: 1; }
+            100% { transform: scale(3); opacity: 0; }
+        }
+
+        /* 입력창 포커스 효과 */
+        #word-input:focus {
+            outline: none;
+            box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.3);
+            border-color: #38bdf8;
+        }
+        
+        /* 토글 스위치 커스텀 스타일 */
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #10b981;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #10b981;
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-8">
+
+    <div id="game-container" class="rounded-xl flex flex-col">
+        
+        <!-- 상단 HUD (상태 표시줄) -->
+        <div class="h-14 bg-slate-800 flex justify-between items-center px-6 border-b border-slate-700 z-10 shrink-0">
+            <div class="flex gap-6 text-lg font-bold text-slate-300">
+                <div>점수: <span id="ui-score" class="text-sky-400">0</span></div>
+                <div>최고 점수: <span id="ui-highscore" class="text-emerald-400">0</span></div>
+                <div>목숨: <span id="ui-lives" class="text-rose-400">❤️❤️❤️</span></div>
+            </div>
+            <div class="flex gap-4 items-center">
+                <div class="text-xl font-black text-rose-400 w-24 text-right">⏱ <span id="ui-time">30.0</span>s</div>
+                <button id="btn-pause" class="bg-slate-700 hover:bg-slate-600 px-4 py-1.5 rounded font-bold transition-colors hidden">일시정지</button>
+            </div>
+        </div>
+
+        <!-- 게임 플레이 영역 -->
+        <div id="play-area" class="flex-1 relative overflow-hidden bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCI+PGNpcmNsZSBjeD0iMiIgY3k9IjIiIHI9IjEiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4wNSkiLz48L3N2Zz4=')]">
+            <!-- 단어들이 생성되는 공간 -->
+        </div>
+
+        <!-- 하단 입력 및 컨트롤 영역 -->
+        <div class="h-24 bg-slate-800 p-4 border-t border-slate-700 flex items-center gap-4 z-10 shrink-0">
+            <!-- 입력 폼 -->
+            <form id="input-form" class="flex-1">
+                <input type="text" id="word-input" class="w-full bg-slate-900 border-2 border-slate-600 text-white px-6 py-3 rounded-lg text-xl text-center placeholder-slate-500 transition-all" placeholder="여기에 단어를 입력하고 엔터를 누르세요" autocomplete="off" disabled>
+            </form>
+            
+            <!-- 접근성 및 설정 컨트롤 -->
+            <div class="flex flex-col gap-2 text-sm text-slate-400 shrink-0 w-48">
+                <label class="flex items-center justify-between cursor-pointer">
+                    <span>음소거 (Mute)</span>
+                    <input type="checkbox" id="toggle-mute" class="w-4 h-4 accent-sky-500">
+                </label>
+                <label class="flex items-center justify-between cursor-pointer">
+                    <span>효과 끄기 (Reduced Motion)</span>
+                    <input type="checkbox" id="toggle-motion" class="w-4 h-4 accent-sky-500">
+                </label>
+                <button id="btn-reset-data" class="text-xs text-rose-400 hover:text-rose-300 underline text-right mt-1">저장 데이터 초기화</button>
+            </div>
+        </div>
+
+        <!-- 시작 화면 -->
+        <div id="overlay-start" class="absolute inset-0 bg-slate-900/90 backdrop-blur-sm flex flex-col items-center justify-center z-50">
+            <h1 class="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-emerald-400 mb-6">타이핑 디펜스</h1>
+            <p class="text-slate-300 mb-8 text-center leading-relaxed">
+                위에서 떨어지는 단어를 타이핑하여 파괴하세요.<br>
+                제한시간은 <strong class="text-white">30초</strong> 입니다.
+            </p>
+            <button id="btn-start" class="bg-sky-500 hover:bg-sky-400 text-slate-900 font-bold text-xl px-12 py-4 rounded-full shadow-lg shadow-sky-500/30 transition-transform active:scale-95">게임 시작 (Enter)</button>
+        </div>
+
+        <!-- 일시정지 화면 -->
+        <div id="overlay-pause" class="absolute inset-0 bg-slate-900/80 backdrop-blur-md flex flex-col items-center justify-center z-50 hidden">
+            <h2 class="text-4xl font-bold text-white mb-6">일시정지</h2>
+            <p class="text-slate-400 mb-8">화면 밖으로 나갔거나 일시정지 버튼을 눌렀습니다.</p>
+            <button id="btn-resume" class="bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold text-xl px-10 py-3 rounded-full transition-transform active:scale-95">계속하기 (Esc)</button>
+        </div>
+
+        <!-- 결과(게임오버) 화면 -->
+        <div id="overlay-result" class="absolute inset-0 bg-slate-900/95 flex flex-col items-center justify-center z-50 hidden">
+            <h2 class="text-5xl font-black text-white mb-2">TIME OVER</h2>
+            <p id="result-msg" class="text-xl text-sky-400 mb-8 font-bold">수고하셨습니다!</p>
+            
+            <div class="bg-slate-800 p-8 rounded-2xl border border-slate-700 w-80 text-center mb-8 shadow-2xl">
+                <div class="text-slate-400 mb-1">최종 점수</div>
+                <div id="result-score" class="text-4xl font-black text-white mb-4">0</div>
+                
+                <div class="h-px bg-slate-700 w-full mb-4"></div>
+                
+                <div class="text-slate-400 mb-1">최고 점수</div>
+                <div id="result-highscore" class="text-2xl font-bold text-emerald-400">0</div>
+            </div>
+            
+            <button id="btn-restart" class="bg-sky-500 hover:bg-sky-400 text-slate-900 font-bold text-xl px-12 py-4 rounded-full shadow-lg shadow-sky-500/30 transition-transform active:scale-95">다시 하기 (Enter)</button>
+        </div>
+        
+        <!-- 메시지 모달 (alert 대체) -->
+        <div id="modal-msg" class="absolute inset-0 bg-black/60 flex items-center justify-center z-[100] hidden">
+            <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 max-w-sm w-full shadow-2xl text-center">
+                <p id="modal-text" class="text-white mb-6">메시지 내용</p>
+                <div class="flex gap-4 justify-center">
+                    <button id="modal-btn-cancel" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded text-white hidden">취소</button>
+                    <button id="modal-btn-ok" class="px-4 py-2 bg-rose-500 hover:bg-rose-400 rounded text-white font-bold">확인</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* ==========================================================================
+           [카드 3] 난이도 단일 변수 설정
+           - 이 변수 하나만 변경하여 10회 플레이 비교 기록을 진행할 수 있습니다.
+           - 단위: 픽셀/ms (밀리초당 이동 픽셀)
+           ========================================================================== */
+        const DIFFICULTY_FALL_SPEED = 0.08; 
+        const SPAWN_INTERVAL = 1000; // 단어 생성 주기 (ms)
+        const GAME_DURATION = 30.0;  // 게임 제한 시간 (초)
+
+        // 단어 데이터베이스
+        const WORD_LIST = [
+            "사과", "바나나", "포도", "오렌지", "수박", "자두", "복숭아", "파인애플", "딸기", "메론",
+            "컴퓨터", "마우스", "키보드", "모니터", "브라우저", "인터넷", "데이터", "네트워크", "서버", "클라이언트",
+            "자바스크립트", "타입스크립트", "파이썬", "리액트", "앵귤러", "스벨트", "노드", "익스프레스", "스프링", "장고",
+            "프로그래밍", "알고리즘", "자료구조", "인공지능", "머신러닝", "딥러닝", "클라우드", "데이터베이스", "보안", "해킹"
+        ];
+
+        /* ==========================================================================
+           [카드 4] 상태 관리 및 localStorage 손상 복구
+           - 현재 판 상태(리셋 대상)와 영구 보존 기록 분리
+           ========================================================================== */
+        // 영구 보존 데이터 (최고기록 등)
+        let persistentData = {
+            highScore: 0
+        };
+
+        const STORAGE_KEY = 'typing_defense_save_v1';
+
+        function loadData() {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) return; // 빈 값이면 기본값 사용 (T02-C24)
+            
+            try {
+                const parsed = JSON.parse(raw);
+                // 정상 값이면 덮어쓰기
+                if (typeof parsed.highScore === 'number') {
+                    persistentData.highScore = parsed.highScore;
+                }
+            } catch (e) {
+                // 손상된 값이면(JSON.parse 에러) 기본값 유지하고 초기화 (T02-C25)
+                console.warn("Save data corrupted. Resetting to defaults.");
+                saveData(); 
+            }
+        }
+
+        function saveData() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(persistentData));
+        }
+
+        function resetPersistentData() {
+            persistentData.highScore = 0;
+            saveData();
+            updateUI();
+        }
+
+        // 현재 판(게임 중) 상태 데이터 (새 게임마다 초기화 T02-C22)
+        let gameState = {
+            isPlaying: false,
+            isPaused: false,
+            score: 0,
+            lives: 3,
+            timeLeft: GAME_DURATION,
+            activeWords: [], // 화면에 떠있는 단어 객체 배열 { id, el, text, x, y }
+            lastFrameTime: 0,
+            lastSpawnTime: 0,
+            wordIdCounter: 0
+        };
+
+        // DOM 요소 캐싱
+        const elPlayArea = document.getElementById('play-area');
+        const elInput = document.getElementById('word-input');
+        const elForm = document.getElementById('input-form');
+        const elScore = document.getElementById('ui-score');
+        const elHighScore = document.getElementById('ui-highscore');
+        const elTime = document.getElementById('ui-time');
+        const elLives = document.getElementById('ui-lives');
+        const btnPause = document.getElementById('btn-pause');
+
+        // 오버레이
+        const ovlStart = document.getElementById('overlay-start');
+        const ovlPause = document.getElementById('overlay-pause');
+        const ovlResult = document.getElementById('overlay-result');
+        const modMsg = document.getElementById('modal-msg');
+        const modText = document.getElementById('modal-text');
+
+        // 옵션 스위치
+        const chkMute = document.getElementById('toggle-mute');
+        const chkMotion = document.getElementById('toggle-motion');
+
+        // [카드 5] 외부 파일 없이 Web Audio API를 사용해 비프음 구현
+        let audioCtx = null;
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        function playSound(type) {
+            // 음소거 상태면 즉시 리턴 (T02-C27)
+            if (chkMute.checked) return;
+            if (!audioCtx) initAudio();
+            
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            if (type === 'match') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.1);
+            } else if (type === 'fail') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.2);
+                gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.2);
+            }
+        }
+
+        function createExplosionEffect(x, y, color) {
+            // 움직임 감소 켜져있으면 애니메이션 생성 안 함 (T02-C27)
+            if (chkMotion.checked) return;
+
+            const particleCount = 6;
+            for (let i = 0; i < particleCount; i++) {
+                const p = document.createElement('div');
+                p.className = 'particle';
+                p.style.backgroundColor = color;
+                p.style.width = '8px';
+                p.style.height = '8px';
+                p.style.left = `${x}px`;
+                p.style.top = `${y}px`;
+                
+                // 랜덤 방향
+                const angle = (Math.PI * 2 / particleCount) * i;
+                const distance = 30 + Math.random() * 20;
+                const tx = Math.cos(angle) * distance;
+                const ty = Math.sin(angle) * distance;
+                
+                p.style.transition = 'transform 0.4s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.4s ease-out';
+                elPlayArea.appendChild(p);
+
+                // 리플로우 후 애니메이션 시작
+                requestAnimationFrame(() => {
+                    p.style.transform = `translate(${tx}px, ${ty}px) scale(0)`;
+                    p.style.opacity = '0';
+                });
+
+                // 메모리 누수 방지 (DOM 삭제)
+                setTimeout(() => p.remove(), 400);
+            }
+        }
+
+        function initGame() {
+            // 현재 판 초기화 (T02-C22)
+            gameState.isPlaying = true;
+            gameState.isPaused = false;
+            gameState.score = 0;
+            gameState.lives = 3;
+            gameState.timeLeft = GAME_DURATION;
+            
+            // 기존 단어들 모두 DOM에서 삭제 (T02-C16 - 누수 방지)
+            gameState.activeWords.forEach(w => w.el.remove());
+            gameState.activeWords = [];
+            
+            gameState.wordIdCounter = 0;
+            gameState.lastSpawnTime = 0;
+            
+            updateUI();
+            
+            ovlStart.classList.add('hidden');
+            ovlResult.classList.add('hidden');
+            ovlPause.classList.add('hidden');
+            btnPause.classList.remove('hidden');
+            
+            elInput.disabled = false;
+            elInput.value = '';
+            elInput.focus();
+            
+            initAudio(); // 유저 인터랙션 발생 시 오디오 허용
+            gameState.lastFrameTime = performance.now();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function spawnWord(timestamp) {
+            if (timestamp - gameState.lastSpawnTime > SPAWN_INTERVAL) {
+                gameState.lastSpawnTime = timestamp;
+                
+                const text = WORD_LIST[Math.floor(Math.random() * WORD_LIST.length)];
+                const el = document.createElement('div');
+                el.className = 'falling-word';
+                el.textContent = text;
+                
+                // 가로 위치 랜덤 배치 (좌우 잘림 방지 패딩 10%)
+                const startX = 10 + Math.random() * 80;
+                el.style.left = `${startX}%`;
+                
+                // DOM 추가
+                elPlayArea.appendChild(el);
+                
+                gameState.activeWords.push({
+                    id: gameState.wordIdCounter++,
+                    el: el,
+                    text: text,
+                    y: -30, // 화면 위에서 시작
+                    xPos: startX
+                });
+            }
+        }
+
+        function updateUI() {
+            elScore.textContent = gameState.score;
+            elHighScore.textContent = persistentData.highScore;
+            elTime.textContent = Math.max(0, gameState.timeLeft).toFixed(1);
+            if(elLives) elLives.textContent = '❤️'.repeat(gameState.lives);
+        }
+
+        function gameLoop(timestamp) {
+            if (!gameState.isPlaying) return;
+            
+            // 일시정지 처리 (delta time 보정으로 시간 튀지 않음 T02-C15)
+            if (gameState.isPaused) {
+                gameState.lastFrameTime = timestamp; // 정지 중엔 과거 시간 갱신만
+                requestAnimationFrame(gameLoop);
+                return;
+            }
+
+            const dt = timestamp - gameState.lastFrameTime;
+            gameState.lastFrameTime = timestamp;
+
+            // 타이머 차감
+            gameState.timeLeft -= dt / 1000;
+            updateUI();
+
+            if (gameState.timeLeft <= 0) {
+                endGame();
+                return;
+            }
+
+            // 단어 이동 및 라이프사이클 관리
+            const playAreaHeight = elPlayArea.clientHeight;
+            
+            // 뒤에서부터 순회하며 삭제 시 인덱스 꼬임 방지
+            for (let i = gameState.activeWords.length - 1; i >= 0; i--) {
+                const word = gameState.activeWords[i];
+                
+                // [카드 3] 단일 난이도 변수를 dt에 곱해 프레임 독립적 이동
+                word.y += DIFFICULTY_FALL_SPEED * dt;
+                word.el.style.transform = `translate(-50%, ${word.y}px)`;
+                
+                // 바닥(입력창 윗선 = playArea의 하단)에 닿으면 삭제
+                // 단어의 시각적 높이(약 30px)를 고려하여 하단 선에 닿는 순간을 판정합니다.
+                if (word.y > playAreaHeight - 30) {
+                    playSound('fail');
+                    word.el.remove();
+                    gameState.activeWords.splice(i, 1);
+                    
+                    // 목숨 차감 로직 추가
+                    gameState.lives--;
+                    updateUI();
+                    
+                    if (gameState.lives <= 0) {
+                        endGame();
+                        return; // 게임 루프 즉시 종료
+                    }
+                }
+            }
+
+            spawnWord(timestamp);
+            requestAnimationFrame(gameLoop);
+        }
+
+        function endGame() {
+            gameState.isPlaying = false;
+            btnPause.classList.add('hidden');
+            elInput.disabled = true;
+            
+            // 최고점수 갱신 및 보존 기록 저장 (T02-C23)
+            let isNewHigh = false;
+            if (gameState.score > persistentData.highScore && gameState.score > 0) {
+                persistentData.highScore = gameState.score;
+                saveData();
+                isNewHigh = true;
+            }
+            
+            const msgEl = document.getElementById('result-msg');
+            const titleEl = document.querySelector('#overlay-result h2');
+            
+            // 목숨 소진(GameOver)과 시간 종료(TimeOver) 구분
+            if (gameState.lives <= 0) {
+                titleEl.textContent = "GAME OVER";
+                msgEl.textContent = isNewHigh ? "새로운 최고 점수!" : "목숨을 모두 잃었습니다.";
+                msgEl.className = "text-xl text-rose-400 mb-8 font-bold";
+            } else {
+                titleEl.textContent = "TIME OVER";
+                msgEl.textContent = isNewHigh ? "새로운 최고 점수!" : "수고하셨습니다!";
+                msgEl.className = "text-xl text-sky-400 mb-8 font-bold";
+            }
+            
+            document.getElementById('result-score').textContent = gameState.score;
+            document.getElementById('result-highscore').textContent = persistentData.highScore;
+            
+            ovlResult.classList.remove('hidden');
+            document.getElementById('btn-restart').focus();
+        }
+
+        let isProcessingInput = false;
+
+        elForm.addEventListener('submit', (e) => {
+            e.preventDefault(); // 페이지 새로고침 방지
+            
+            // [카드 2 T02-C12] 1초 내 여러 번 엔터를 쳐도, 현재 프레임에서 이미 처리 중이면 무시
+            if (!gameState.isPlaying || gameState.isPaused || isProcessingInput) return;
+            isProcessingInput = true;
+            
+            const typedText = elInput.value.trim();
+            if (typedText === '') {
+                isProcessingInput = false;
+                return;
+            }
+
+            // 배열 앞에서부터 확인 (가장 아래에 있는 단어를 먼저 맞추도록 수정)
+            let matched = false;
+            for (let i = 0; i < gameState.activeWords.length; i++) {
+                const word = gameState.activeWords[i];
+                if (word.text === typedText) {
+                    // 적중 로직
+                    gameState.score += 10;
+                    
+                    // DOM 좌표 계산을 위해 getBoundingClientRect 활용
+                    const rect = word.el.getBoundingClientRect();
+                    const parentRect = elPlayArea.getBoundingClientRect();
+                    const x = rect.left + rect.width / 2 - parentRect.left;
+                    const y = rect.top + rect.height / 2 - parentRect.top;
+                    
+                    createExplosionEffect(x, y, '#38bdf8');
+                    playSound('match');
+                    
+                    // 화면 및 배열에서 삭제 (메모리 관리 T02-C17)
+                    word.el.remove();
+                    gameState.activeWords.splice(i, 1);
+                    
+                    updateUI();
+                    matched = true;
+                    break; // 중복 단어가 있어도 하나만 제거
+                }
+            }
+            
+            elInput.value = ''; // 입력창 초기화
+            
+            // 다음 입력 허용
+            setTimeout(() => { isProcessingInput = false; }, 10);
+        });
+
+        function togglePause(forceState = null) {
+            if (!gameState.isPlaying) return;
+            
+            if (forceState !== null) {
+                gameState.isPaused = forceState;
+            } else {
+                gameState.isPaused = !gameState.isPaused;
+            }
+
+            if (gameState.isPaused) {
+                ovlPause.classList.remove('hidden');
+                elInput.disabled = true;
+            } else {
+                ovlPause.classList.add('hidden');
+                elInput.disabled = false;
+                elInput.focus();
+            }
+        }
+
+        // T02-C14: 포커스 이탈 시 방어
+        window.addEventListener('blur', () => {
+            if (gameState.isPlaying && !gameState.isPaused) togglePause(true);
+        });
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && gameState.isPlaying && !gameState.isPaused) togglePause(true);
+        });
+        // T02-C13: 창 크기 변경 시에도 상태를 잃지 않도록 일시정지 권장
+        let resizeTimer;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            if (gameState.isPlaying && !gameState.isPaused) togglePause(true);
+            resizeTimer = setTimeout(() => {
+                // 리사이징이 끝난 후 다시 포커스 주기는 유저 선택에 맡김
+            }, 300);
+        });
+
+
+        function showModal(text, onOk) {
+            modText.textContent = text;
+            modMsg.classList.remove('hidden');
+            
+            const btnOk = document.getElementById('modal-btn-ok');
+            const btnCancel = document.getElementById('modal-btn-cancel');
+            
+            // 이벤트 리스너 중복 방지를 위한 복제/교체 기법
+            const newOk = btnOk.cloneNode(true);
+            const newCancel = btnCancel.cloneNode(true);
+            btnOk.parentNode.replaceChild(newOk, btnOk);
+            btnCancel.parentNode.replaceChild(newCancel, btnCancel);
+            
+            newCancel.classList.remove('hidden');
+            
+            newOk.addEventListener('click', () => {
+                modMsg.classList.add('hidden');
+                if(onOk) onOk();
+            });
+            newCancel.addEventListener('click', () => {
+                modMsg.classList.add('hidden');
+            });
+        }
+
+        document.getElementById('btn-start').addEventListener('click', initGame);
+        document.getElementById('btn-restart').addEventListener('click', initGame);
+        document.getElementById('btn-resume').addEventListener('click', () => togglePause(false));
+        btnPause.addEventListener('click', () => togglePause());
+
+        // 단축키 지원 (Enter, Esc)
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                if (!ovlStart.classList.contains('hidden')) { document.getElementById('btn-start').click(); }
+                else if (!ovlResult.classList.contains('hidden')) { document.getElementById('btn-restart').click(); }
+            } else if (e.key === 'Escape') {
+                if (gameState.isPlaying) togglePause();
+            }
+        });
+
+        // T02-C24, C25 확인용 데이터 리셋 버튼 (alert 대체 모달 사용)
+        document.getElementById('btn-reset-data').addEventListener('click', () => {
+            showModal('저장된 최고 점수 데이터를 초기화하시겠습니까?', () => {
+                resetPersistentData();
+                showModal('초기화 되었습니다.', null);
+                document.getElementById('modal-btn-cancel').classList.add('hidden');
+            });
+        });
+
+        // 앱 초기화 로드
+        loadData();
+        updateUI();
+
+    </script>
+</body>
+</html>
