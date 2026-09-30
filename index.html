@@ -373,6 +373,9 @@
                 const startX = 10 + Math.random() * 80;
                 el.style.left = `${startX}%`;
                 
+                // [버그 수정] 단어가 처음 등장할 때(1프레임) 0위치에서 깜빡이는 현상 방지
+                el.style.transform = `translate(-50%, -30px)`;
+                
                 // DOM 추가
                 elPlayArea.appendChild(el);
                 
